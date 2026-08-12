@@ -1,8 +1,15 @@
 <Application x:Class="RightMenuMaster.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:helpers="clr-namespace:RightMenuMaster.Helpers"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
+
+        <!-- ======================= 转换器（多个页面共用） ======================= -->
+        <helpers:BoolToVisibilityConverter x:Key="BoolToVis"/>
+        <helpers:StringToVisibilityConverter x:Key="StrToVis"/>
+        <helpers:InverseBoolConverter x:Key="InvBool"/>
+        <helpers:NullToVisibilityConverter x:Key="NullToVis"/>
 
         <!-- ======================= 调色板 ======================= -->
         <SolidColorBrush x:Key="AccentBrush" Color="#2F6FED"/>
