@@ -48,7 +48,7 @@ dotnet build -c Release
 
 也可用 `dotnet publish -c Release -r win-x64 --self-contained true` 发布单文件免安装版。
 
-程序为绿色软件，配置（含 AI 接口设置）保存在程序所在目录，无安装、无注册表垃圾。
+程序为绿色软件，配置（含 AI 接口设置）保存在程序所在目录，无安装、无注册表垃圾。若把程序放在 Program Files 等不可写目录，配置会自动改存到 `%LOCALAPPDATA%\RightMenuMaster`。
 
 ## 使用指南
 
@@ -119,7 +119,7 @@ dotnet build -c Release
 
   ![窗口置顶工具](docs/screenshots/topmost.png)
 
-- **密码速记框**：置顶浮动小框，临时粘贴 / 输入密码，支持隐藏明文、复制、生成随机密码。
+- **密码速记框**：置顶浮动小框，临时粘贴 / 输入密码，支持隐藏明文、复制、生成随机密码；复制后 30 秒自动清空剪贴板。
 
   ![密码速记框](docs/screenshots/passwordbox.png)
 
@@ -128,7 +128,9 @@ dotnet build -c Release
 
 ### 7. 导出 / 导入
 
-工具栏「导出」把当前作用域下选中的菜单项保存为 JSON 文件；「导入」可从 JSON 恢复（同名项自动跳过或覆盖前确认），适合换机迁移与备份。
+工具栏「导出」把当前作用域下**勾选**的菜单项保存为 JSON 文件（一项都没勾时导出该作用域的全部项）。
+
+「导入」会先列出文件里的每一条菜单（标题、作用域、命令），逐条勾选后再写入；与现有菜单同名的项会被标出，可选择跳过或覆盖。导入的命令会进入右键菜单并在点击时执行，请先确认文件来源可信。
 
 ## 注意事项
 
@@ -141,16 +143,20 @@ dotnet build -c Release
 ```
 rightmenu/
 ├── README.md
+├── RightMenuMaster.slnx
 ├── docs/screenshots/            # 文档截图
-└── src/RightMenuMaster/
-    ├── MainWindow.xaml(.cs)     # 主窗口：菜单列表 / 模板 / 默认程序 / 工具箱
-    ├── Models/                  # 菜单项、分类、模板、扩展信息等模型
-    ├── Services/                # 注册表读写、图标、导出导入、LLM、窗口工具
-    ├── Views/                   # 编辑对话框、图标选择、AI 设置、置顶工具等
-    └── Helpers/                 # 转换器、列头排序、原生方法
+├── src/RightMenuMaster/
+│   ├── MainWindow.xaml(.cs)     # 主窗口：侧边导航与页面切换
+│   ├── Models/                  # 菜单项、分类、模板、扩展信息等模型
+│   ├── Services/                # 注册表读写、导出导入、LLM、默认程序、窗口工具
+│   ├── Imaging/                 # 内置图标绘制与图标提取/转换
+│   ├── Views/                   # 编辑对话框、图标选择、导入确认、AI 设置、置顶工具等
+│   │   └── Pages/               # 菜单列表 / 快捷模板 / 默认程序 / 小工具箱四个页面
+│   └── Helpers/                 # 命令行处理、数据加密、路径、转换器、列头排序、原生方法
+└── tests/RightMenuMaster.Tests/ # 单元测试（xUnit）
 ```
 
-技术栈：C# / WPF / .NET 10，全部菜单操作通过读写 `HKEY_CLASSES_ROOT` 下相应键值实现，禁用 shellex 扩展采用重命名 CLSID 值的方式，安全可逆。
+技术栈：C# / WPF / .NET 10（主程序零第三方依赖）。全部菜单操作通过读写 `HKEY_CURRENT_USER\Software\Classes` 与 `HKEY_LOCAL_MACHINE\SOFTWARE\Classes`（二者合并即 `HKEY_CLASSES_ROOT` 视图）下的相应键值实现；禁用 shellex 扩展采用备份并替换 CLSID 的方式，安全可逆。AI 接口的 API Key 使用 Windows DPAPI 按当前用户加密后保存，不以明文落盘。
 
 ## 贡献
 

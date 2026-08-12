@@ -21,10 +21,10 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: 还原依赖
-        run: dotnet restore RightMenuMaster.sln
+        run: dotnet restore RightMenuMaster.slnx
 
       - name: 编译
-        run: dotnet build RightMenuMaster.sln -c Release --no-restore
+        run: dotnet build RightMenuMaster.slnx -c Release --no-restore
 
       - name: 运行测试
-        run: dotnet test RightMenuMaster.sln -c Release --no-build --verbosity normal
+        run: dotnet test RightMenuMaster.slnx -c Release --no-build --verbosity normal
