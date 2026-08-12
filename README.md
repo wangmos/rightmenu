@@ -34,7 +34,7 @@
 从源码编译运行：
 
 ```bash
-git clone https://github.com/<你的用户名>/rightmenu.git
+git clone https://github.com/wangmos/rightmenu.git
 cd rightmenu/src/RightMenuMaster
 dotnet run -c Release
 ```
