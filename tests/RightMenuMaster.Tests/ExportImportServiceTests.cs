@@ -83,20 +83,53 @@ public class ExportImportServiceTests : IDisposable
     }
 
     [Fact]
-    public void Import_非本程序的文件应被拒绝()
+    public void Parse_非本程序的文件应被拒绝()
     {
         var path = TempFile();
         File.WriteAllText(path, """{"App":"SomethingElse","Version":1,"Items":[]}""");
 
-        Assert.Throws<InvalidDataException>(() => ExportImportService.Import(path));
+        Assert.Throws<InvalidDataException>(() => ExportImportService.Parse(path));
     }
 
     [Fact]
-    public void Import_损坏的JSON应被拒绝()
+    public void Parse_损坏的JSON应被拒绝()
     {
         var path = TempFile();
         File.WriteAllText(path, "{ 这不是 json");
 
-        Assert.Throws<InvalidDataException>(() => ExportImportService.Import(path));
+        Assert.Throws<InvalidDataException>(() => ExportImportService.Parse(path));
+    }
+
+    /// <summary>
+    /// 导出再解析应能完整读回。Parse 只读注册表判断重名，不写入任何内容。
+    /// </summary>
+    [Fact]
+    public void Parse_能读回导出的内容且不写注册表()
+    {
+        var path = TempFile();
+        var original = Item("往返测试项", "cmd.exe /c echo hi");
+        ExportImportService.Export(new[] { original }, path);
+
+        var candidates = ExportImportService.Parse(path);
+
+        var c = Assert.Single(candidates);
+        Assert.Equal("往返测试项", c.Title);
+        Assert.Equal("cmd.exe /c echo hi", c.Command);
+        Assert.True(c.Selected, "默认应为勾选状态");
+        Assert.False(c.AlreadyExists, "测试项不应存在于注册表中");
+        Assert.Equal("往返测试项", c.KeyName);
+        // Parse 是只读的：解析后注册表里不应凭空出现该项
+        Assert.False(RegistryService.EntryExists(MenuCategory.Background, null, c.KeyName));
+    }
+
+    /// <summary>键名要过滤掉路径分隔符等非法字符，否则会写到别的注册表层级去。</summary>
+    [Theory]
+    [InlineData("正常标题", "正常标题")]
+    [InlineData(@"带\斜杠", "带_斜杠")]
+    [InlineData("带/斜杠", "带_斜杠")]
+    [InlineData("   ", "NewMenu")]
+    public void KeyNameFor_应过滤非法字符(string title, string expected)
+    {
+        Assert.Equal(expected, RegistryService.KeyNameFor(title));
     }
 }

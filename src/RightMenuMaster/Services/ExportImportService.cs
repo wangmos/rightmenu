@@ -97,9 +97,40 @@ public static class ExportImportService
     }
 
     /// <summary>
-    /// 从 JSON 文件导入菜单项（全部写入当前用户，无需管理员权限），返回导入数量。
+    /// 导入文件中的一个待导入项。解析阶段不碰注册表，交给用户确认后再写入。
     /// </summary>
-    public static int Import(string filePath)
+    public sealed class ImportCandidate
+    {
+        public required MenuItemModel Item { get; init; }
+
+        /// <summary>写入后会使用的注册表子键名。</summary>
+        public required string KeyName { get; init; }
+
+        /// <summary>当前用户下是否已有同名项。</summary>
+        public required bool AlreadyExists { get; init; }
+
+        /// <summary>内嵌图标数据，确认导入后才落盘。</summary>
+        public string? IconFileName { get; init; }
+        public string? IconData { get; init; }
+
+        /// <summary>用户是否勾选导入（默认全选）。</summary>
+        public bool Selected { get; set; } = true;
+
+        public string Title => Item.Title;
+        public string Command => Item.Command;
+
+        public string ScopeName => Item.Category == MenuCategory.Extension
+            ? $"{Item.Category.DisplayName()}（{Item.Extension}）"
+            : Item.Category.DisplayName();
+
+        public string StatusText => AlreadyExists ? "已存在同名项" : "新增";
+    }
+
+    /// <summary>
+    /// 解析导出文件，返回待导入项列表（只读，不写注册表）。
+    /// 文件格式非法时抛 <see cref="InvalidDataException"/>。
+    /// </summary>
+    public static List<ImportCandidate> Parse(string filePath)
     {
         ExportFile? file;
         try
@@ -114,7 +145,7 @@ public static class ExportImportService
         if (file == null || file.App != AppId || file.Items == null)
             throw new InvalidDataException("不是有效的「右键菜单管家」导出文件。");
 
-        int count = 0;
+        var result = new List<ImportCandidate>();
         foreach (var exp in file.Items)
         {
             if (string.IsNullOrWhiteSpace(exp.Title) || string.IsNullOrWhiteSpace(exp.Command)) continue;
@@ -134,20 +165,54 @@ public static class ExportImportService
                 Source = RegistrySource.CurrentUser,
             };
 
-            // 还原内嵌图标（失败不影响菜单项本身）
-            if (!string.IsNullOrEmpty(exp.IconData) && !string.IsNullOrEmpty(exp.IconFileName))
+            var keyName = RegistryService.KeyNameFor(item.Title);
+            result.Add(new ImportCandidate
             {
-                try
-                {
-                    item.IconPath = WriteEmbeddedIcon(exp.IconFileName, exp.IconData);
-                }
+                Item = item,
+                KeyName = keyName,
+                AlreadyExists = RegistryService.EntryExists(category, item.Extension, keyName),
+                IconFileName = exp.IconFileName,
+                IconData = exp.IconData,
+            });
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// 把用户确认后的项写入当前用户（无需管理员权限）。
+    /// 同名项按 <paramref name="overwriteExisting"/> 覆盖或跳过。
+    /// 返回（导入数, 跳过数）。
+    /// </summary>
+    public static (int Imported, int Skipped) Apply(
+        IEnumerable<ImportCandidate> candidates, bool overwriteExisting)
+    {
+        int imported = 0, skipped = 0;
+        foreach (var c in candidates.Where(c => c.Selected))
+        {
+            if (c.AlreadyExists && !overwriteExisting) { skipped++; continue; }
+
+            var item = c.Item;
+
+            // 还原内嵌图标（失败不影响菜单项本身）
+            if (!string.IsNullOrEmpty(c.IconData) && !string.IsNullOrEmpty(c.IconFileName))
+            {
+                try { item.IconPath = WriteEmbeddedIcon(c.IconFileName, c.IconData); }
                 catch { /* 忽略 */ }
             }
 
-            RegistryService.SaveEntry(item, isNew: true);
-            count++;
+            if (c.AlreadyExists)
+            {
+                // 覆盖：沿用已有键名，走「修改」路径，避免生成 Foo_2 副本
+                item.KeyName = c.KeyName;
+                RegistryService.SaveEntry(item, isNew: false);
+            }
+            else
+            {
+                RegistryService.SaveEntry(item, isNew: true);
+            }
+            imported++;
         }
-        return count;
+        return (imported, skipped);
     }
 
     // ---------------------------------------------------------------- 辅助

@@ -3,29 +3,52 @@ using System.IO;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace RightMenuMaster.Services;
 
-/// <summary>LLM API 连接设置，保存在程序目录下的 llm.json。</summary>
+/// <summary>
+/// LLM API 连接设置，保存在数据目录下的 llm.json。
+///
+/// API Key 用 DPAPI 按当前用户加密后存 <see cref="ProtectedApiKey"/>，明文不落盘；
+/// 旧版本写下的明文 <see cref="ApiKey"/> 仍可读入，下次保存时自动升级为密文。
+/// </summary>
 public sealed class LlmSettings
 {
     public string BaseUrl { get; set; } = string.Empty;
-    public string ApiKey { get; set; } = string.Empty;
     public string Model { get; set; } = string.Empty;
+
+    /// <summary>DPAPI 密文（base64）。正常情况下 Key 只以这种形式落盘。</summary>
+    public string? ProtectedApiKey { get; set; }
+
+    /// <summary>旧版本的明文字段，仅为兼容读取而保留，保存时始终写空。</summary>
+    public string ApiKey { get; set; } = string.Empty;
+
+    /// <summary>内存中的明文 Key，不参与序列化。</summary>
+    [JsonIgnore]
+    public string Key { get; set; } = string.Empty;
 
     public bool IsConfigured =>
         !string.IsNullOrWhiteSpace(BaseUrl)
-        && !string.IsNullOrWhiteSpace(ApiKey)
+        && !string.IsNullOrWhiteSpace(Key)
         && !string.IsNullOrWhiteSpace(Model);
 
     private static string FilePath => RightMenuMaster.Helpers.AppPaths.LlmSettingsFile;
+
+    private static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = true };
 
     public static LlmSettings Load()
     {
         try
         {
-            if (File.Exists(FilePath))
-                return JsonSerializer.Deserialize<LlmSettings>(File.ReadAllText(FilePath)) ?? new LlmSettings();
+            if (!File.Exists(FilePath)) return new LlmSettings();
+
+            var s = JsonSerializer.Deserialize<LlmSettings>(File.ReadAllText(FilePath)) ?? new LlmSettings();
+
+            // 优先用密文；解不开（换机器/换用户）时退回明文字段，二者都没有就算未配置
+            s.Key = RightMenuMaster.Helpers.DataProtection.Unprotect(s.ProtectedApiKey) ?? string.Empty;
+            if (string.IsNullOrEmpty(s.Key)) s.Key = s.ApiKey;
+            return s;
         }
         catch { /* 配置损坏时按未配置处理 */ }
         return new LlmSettings();
@@ -33,8 +56,20 @@ public sealed class LlmSettings
 
     public void Save()
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-        File.WriteAllText(FilePath, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+        var dir = Path.GetDirectoryName(FilePath);
+        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+
+        var encrypted = RightMenuMaster.Helpers.DataProtection.Protect(Key);
+        var toWrite = new LlmSettings
+        {
+            BaseUrl = BaseUrl,
+            Model = Model,
+            // DPAPI 不可用时宁可不写 Key，也不把明文落盘
+            ProtectedApiKey = encrypted,
+            ApiKey = string.Empty,
+        };
+
+        File.WriteAllText(FilePath, JsonSerializer.Serialize(toWrite, JsonOpts));
     }
 }
 
@@ -115,7 +150,7 @@ public static class LlmService
         };
 
         using var msg = new HttpRequestMessage(HttpMethod.Post, url);
-        msg.Headers.TryAddWithoutValidation("Authorization", "Bearer " + settings.ApiKey.Trim());
+        msg.Headers.TryAddWithoutValidation("Authorization", "Bearer " + settings.Key.Trim());
         msg.Content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
 
         var resp = await Http.SendAsync(msg);

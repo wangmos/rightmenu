@@ -315,9 +315,17 @@ public partial class MainWindow : Window
 
         int done = 0, failed = 0;
         var needAdmin = false;
+        // 删掉用户项后，同名的系统项会「浮现」出来，菜单看上去没被删掉，需要解释
+        var shadowed = new List<string>();
         foreach (var item in items)
         {
-            try { RegistryService.DeleteEntry(item); done++; }
+            try
+            {
+                RegistryService.DeleteEntry(item);
+                done++;
+                if (item.Source == RegistrySource.CurrentUser && RegistryService.ExistsInLocalMachine(item))
+                    shadowed.Add(item.DisplayTitle);
+            }
             catch (ElevationRequiredException) { failed++; needAdmin = true; }
             catch { failed++; }
         }
@@ -325,6 +333,16 @@ public partial class MainWindow : Window
             ? $"已删除 {done} 项"
             : $"已删除 {done} 项，{failed} 项失败（可能需管理员权限）");
         RefreshEntries();
+
+        if (shadowed.Count > 0)
+        {
+            var names = string.Join("、", shadowed.Take(3).Select(t => $"「{t}」"))
+                + (shadowed.Count > 3 ? $" 等 {shadowed.Count} 项" : "");
+            MessageBox.Show(this,
+                $"{names} 的用户配置已删除，但系统（所有用户）中还存在同名项，\n" +
+                "因此右键菜单里仍会看到它。\n\n如需一并删除，请以管理员身份重启后再删除来源为「系统」的那一项。",
+                "右键菜单管家", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
         if (needAdmin) PromptElevation();
     }
 
@@ -369,14 +387,18 @@ public partial class MainWindow : Window
         }
 
         int done = 0, skipped = 0;
+        var needAdmin = false;
         foreach (var item in items)
         {
             if (item.IsCascade) { skipped++; continue; }
             try { RegistryService.SetDisabled(item, !item.IsDisabled); done++; }
+            catch (ElevationRequiredException) { skipped++; needAdmin = true; }
             catch { skipped++; }
         }
         ShowToast($"已切换 {done} 项" + (skipped > 0 ? $"，跳过 {skipped} 项（级联菜单或需管理员权限）" : ""));
         RefreshEntries();
+        // 与删除保持一致：确有项目因权限失败时给出提权入口
+        if (needAdmin) PromptElevation();
     }
 
     private void ToggleItem(MenuItemModel item)
@@ -516,9 +538,25 @@ public partial class MainWindow : Window
 
         try
         {
-            var n = ExportImportService.Import(dlg.FileName);
-            ShowToast($"已导入 {n} 个菜单项");
+            // 先解析给用户过目（导入的命令会进右键菜单并被执行），确认后才写注册表
+            var candidates = ExportImportService.Parse(dlg.FileName);
+            if (candidates.Count == 0)
+            {
+                ShowToast("该文件中没有可导入的菜单项");
+                return;
+            }
+
+            var preview = new ImportPreviewDialog(candidates, Path.GetFileName(dlg.FileName)) { Owner = this };
+            if (preview.ShowDialog() != true) return;
+
+            var (imported, skipped) = ExportImportService.Apply(preview.Confirmed, preview.OverwriteExisting);
+            ShowToast($"已导入 {imported} 个菜单项"
+                + (skipped > 0 ? $"，跳过 {skipped} 个同名项" : ""));
             RefreshEntries();
+        }
+        catch (ElevationRequiredException)
+        {
+            PromptElevation();
         }
         catch (Exception ex)
         {
@@ -601,8 +639,9 @@ public partial class MainWindow : Window
         {
             var command = Environment.ExpandEnvironmentVariables(tpl.Command);
 
-            // %V = 当前目录 → 用桌面路径演示；%1 = 选中对象 → 目录类模板用文件夹，文件类模板用真实文件
-            var dir = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            // %V = 当前目录、%1 = 选中对象。一律用临时目录里的示例文件演示，
+            // 不拿用户桌面上的真实文件当参数（可能是隐私文件）
+            var dir = EnsureSampleDir();
             var target = tpl.Category is MenuCategory.File or MenuCategory.Extension
                 ? SampleTargetFile(dir)
                 : dir;
@@ -624,16 +663,25 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>为文件类模板挑一个真实存在的文件（优先桌面上第一个文件，退回 win.ini）。</summary>
+    /// <summary>模板预览用的示例目录（临时目录下，内容可随意被模板命令操作）。</summary>
+    private static string EnsureSampleDir()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "RightMenuMaster_模板预览");
+        Directory.CreateDirectory(dir);
+        return dir;
+    }
+
+    /// <summary>为文件类模板准备一个示例文件，避免拿用户的真实文件做演示。</summary>
     private static string SampleTargetFile(string dir)
     {
+        var file = Path.Combine(dir, "示例文件.txt");
         try
         {
-            var file = Directory.GetFiles(dir).FirstOrDefault();
-            if (!string.IsNullOrEmpty(file)) return file;
+            if (!File.Exists(file))
+                File.WriteAllText(file, "这是「右键菜单管家」用于预览模板效果的示例文件，可以随意删除。");
         }
-        catch { /* 忽略 */ }
-        return Path.Combine(Environment.ExpandEnvironmentVariables("%SystemRoot%"), "win.ini");
+        catch { /* 忽略，交给命令自己报错 */ }
+        return file;
     }
 
     /// <summary>把命令行拆成程序与参数（支持带引号的程序路径）。</summary>

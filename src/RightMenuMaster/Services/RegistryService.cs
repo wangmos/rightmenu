@@ -357,6 +357,45 @@ public static class RegistryService
         return item.KeyName;
     }
 
+    // ---------------------------------------------------------------- 查询
+
+    /// <summary>把菜单标题转成注册表子键名（导入预览需要提前知道会落到哪个键）。</summary>
+    public static string KeyNameFor(string title) => MakeKeyName(title);
+
+    /// <summary>当前用户下该分类是否已存在同名菜单项（用于导入时的重名判断）。</summary>
+    public static bool EntryExists(MenuCategory category, string? extension, string keyName)
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(
+                $@"{ClassesHKCU}\{category.ShellPath(extension)}\{keyName}");
+            return key != null;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 系统（HKLM）下是否还存在同名项。删除用户项后菜单仍然出现时，用它给出解释。
+    /// </summary>
+    public static bool ExistsInLocalMachine(MenuItemModel item)
+    {
+        var relative = item.IsShellExtension
+            ? item.Category.ShellexPath(item.Extension)
+            : item.Category.ShellPath(item.Extension);
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey($@"{ClassesHKLM}\{relative}\{item.KeyName}");
+            return key != null;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     // ---------------------------------------------------------------- 扩展名
 
     /// <summary>

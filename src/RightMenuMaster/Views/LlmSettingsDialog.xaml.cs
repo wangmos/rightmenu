@@ -13,7 +13,7 @@ public partial class LlmSettingsDialog : Window
 
         var s = LlmSettings.Load();
         BaseUrlBox.Text = s.BaseUrl;
-        KeyBox.Password = s.ApiKey;
+        KeyBox.Password = s.Key;
         ModelBox.Text = s.Model;
     }
 
@@ -38,12 +38,22 @@ public partial class LlmSettingsDialog : Window
             return;
         }
 
-        new LlmSettings
+        try
         {
-            BaseUrl = BaseUrlBox.Text.Trim(),
-            ApiKey = KeyBox.Password.Trim(),
-            Model = ModelBox.Text.Trim(),
-        }.Save();
+            new LlmSettings
+            {
+                BaseUrl = BaseUrlBox.Text.Trim(),
+                Key = KeyBox.Password.Trim(),
+                Model = ModelBox.Text.Trim(),
+            }.Save();
+        }
+        catch (Exception ex)
+        {
+            // 目录只读、磁盘满等；不能让它冒到全局未处理异常
+            MessageBox.Show(this, "保存设置失败：\n" + ex.Message, "右键菜单管家",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
 
         DialogResult = true;
     }
