@@ -685,7 +685,7 @@ public partial class MainWindow : Window
                 : dir;
             command = command.Replace("%V", dir).Replace("%1", target);
 
-            SplitCommandLine(command, out var program, out var args);
+            CommandLine.Split(command, out var program, out var args);
             Process.Start(new ProcessStartInfo
             {
                 FileName = program,
@@ -720,37 +720,6 @@ public partial class MainWindow : Window
         }
         catch { /* 忽略，交给命令自己报错 */ }
         return file;
-    }
-
-    /// <summary>把命令行拆成程序与参数（支持带引号的程序路径）。</summary>
-    private static void SplitCommandLine(string command, out string program, out string args)
-    {
-        program = string.Empty;
-        args = string.Empty;
-        if (string.IsNullOrWhiteSpace(command)) return;
-
-        var cmd = command.Trim();
-        if (cmd.StartsWith('"'))
-        {
-            int end = cmd.IndexOf('"', 1);
-            if (end > 0)
-            {
-                program = cmd[1..end];
-                args = cmd[(end + 1)..].Trim();
-                return;
-            }
-        }
-
-        int space = cmd.IndexOf(' ');
-        if (space > 0)
-        {
-            program = cmd[..space];
-            args = cmd[(space + 1)..].Trim();
-        }
-        else
-        {
-            program = cmd;
-        }
     }
 
     // ================================================================== 默认程序

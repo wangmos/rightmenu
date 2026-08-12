@@ -1,3 +1,4 @@
+using RightMenuMaster.Helpers;
 using RightMenuMaster.Imaging;
 using RightMenuMaster.Models;
 using RightMenuMaster.Services;
@@ -80,7 +81,7 @@ public partial class EditEntryDialog : Window
         ArgsBox.Text = string.Empty;
         if (kind == CommandKind.Program)
         {
-            SplitCommand(item.Command, out var prog, out var args);
+            CommandLine.Split(item.Command, out var prog, out var args);
             ProgramBox.Text = prog;
             ArgsBox.Text = args;
         }
@@ -117,97 +118,30 @@ public partial class EditEntryDialog : Window
 
     // ---------------------------------------------------------------- 命令拆分/组合
 
-    private static void SplitCommand(string command, out string program, out string args)
-    {
-        program = string.Empty;
-        args = string.Empty;
-        if (string.IsNullOrWhiteSpace(command)) return;
-
-        var cmd = command.Trim();
-        if (cmd.StartsWith('"'))
-        {
-            int end = cmd.IndexOf('"', 1);
-            if (end > 0)
-            {
-                program = cmd[1..end];
-                args = cmd[(end + 1)..].Trim();
-                return;
-            }
-        }
-
-        int space = cmd.IndexOf(' ');
-        if (space > 0)
-        {
-            program = cmd[..space];
-            args = cmd[(space + 1)..].Trim();
-        }
-        else
-        {
-            program = cmd;
-        }
-    }
-
-    private static string BuildCommand(string program, string args)
-    {
-        program = program.Trim();
-        args = args.Trim();
-        if (program.Length == 0) return args;
-        var prog = program.Contains(' ') && !program.StartsWith('"') ? $"\"{program}\"" : program;
-        return string.IsNullOrEmpty(args) ? prog : $"{prog} {args}";
-    }
-
     /// <summary>
-    /// 根据已有命令自动识别类型：cmd.exe /c … → CMD；powershell.exe -Command … → PowerShell；其余按程序处理。
+    /// 根据已有命令自动识别类型：cmd.exe /c … → CMD；
+    /// powershell.exe -Command / -EncodedCommand … → PowerShell；其余按程序处理。
     /// </summary>
     private static CommandKind DetectCommandKind(string command, out string payload)
     {
         payload = string.Empty;
         if (string.IsNullOrWhiteSpace(command)) return CommandKind.Program;
 
-        SplitCommand(command.Trim(), out var prog, out var args);
-        var progLower = prog.Trim().Trim('"').ToLowerInvariant()
-            .Replace('/', '\\');
+        CommandLine.Split(command.Trim(), out var prog, out var args);
 
-        bool isCmd = progLower is "cmd" or "cmd.exe" or @"\cmd.exe"
-            || progLower.EndsWith(@"\cmd.exe");
-        bool isPs = progLower is "powershell" or "powershell.exe" or "pwsh" or "pwsh.exe"
-            || progLower.EndsWith(@"\powershell.exe") || progLower.EndsWith(@"\pwsh.exe");
-
-        if (isCmd)
+        if (CommandLine.TryParseCmd(prog, args, out var cmdScript))
         {
-            var a = args.Trim();
-            if (a.StartsWith("/c", StringComparison.OrdinalIgnoreCase))
-            {
-                payload = a.Length > 2 ? a[2..].TrimStart() : string.Empty;
-                return CommandKind.Cmd;
-            }
-            return CommandKind.Program;
+            payload = cmdScript;
+            return CommandKind.Cmd;
         }
 
-        if (isPs)
+        if (CommandLine.TryParsePowerShell(prog, args, out var psScript))
         {
-            var a = args.Trim();
-            int idx = a.IndexOf("-Command", StringComparison.OrdinalIgnoreCase);
-            if (idx >= 0)
-            {
-                var p = a[(idx + "-Command".Length)..].Trim();
-                if (p.Length >= 2 && p.StartsWith('"') && p.EndsWith('"'))
-                    p = p[1..^1].Replace("\\\"", "\"");
-                payload = p;
-                return CommandKind.PowerShell;
-            }
-            return CommandKind.Program;
+            payload = psScript;
+            return CommandKind.PowerShell;
         }
 
         return CommandKind.Program;
-    }
-
-    private static string BuildCmdCommand(string script) => $"cmd.exe /c {script.Trim()}";
-
-    private static string BuildPowerShellCommand(string script)
-    {
-        var escaped = script.Trim().Replace("\"", "\\\"");
-        return $"powershell.exe -NoProfile -Command \"{escaped}\"";
     }
 
     // ---------------------------------------------------------------- 事件
@@ -244,7 +178,8 @@ public partial class EditEntryDialog : Window
                     "输入 CMD 命令，将以 cmd.exe /c 执行。可用占位符：%1 = 选中项，%V = 当前目录。" +
                     "示例：dir \"%1\" & pause",
                 CommandKind.PowerShell =>
-                    "输入 PowerShell 语句，将以 powershell.exe -NoProfile -Command 执行。" +
+                    "输入 PowerShell 语句，用 powershell.exe -NoProfile 执行。" +
+                    "不含占位符时会以 -EncodedCommand 保存，引号与转义无需担心。" +
                     "示例：Get-ChildItem \"%1\" | Out-GridView",
                 _ => string.Empty,
             };
@@ -328,9 +263,9 @@ public partial class EditEntryDialog : Window
         _item.Title = TitleBox.Text.Trim();
         _item.Command = kind switch
         {
-            CommandKind.Cmd => BuildCmdCommand(ScriptBox.Text),
-            CommandKind.PowerShell => BuildPowerShellCommand(ScriptBox.Text),
-            _ => BuildCommand(ProgramBox.Text, ArgsBox.Text),
+            CommandKind.Cmd => CommandLine.BuildCmd(ScriptBox.Text),
+            CommandKind.PowerShell => CommandLine.BuildPowerShell(ScriptBox.Text),
+            _ => CommandLine.Build(ProgramBox.Text, ArgsBox.Text),
         };
         _item.IconPath = _iconLocation;
         _item.Position = (PositionCombo.SelectedItem as PositionOption)?.Value;
