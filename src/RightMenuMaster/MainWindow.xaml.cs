@@ -32,6 +32,8 @@ public partial class MainWindow : Window
     private bool _initializing = true;
     private bool _defaultsLoaded;
     private DispatcherTimer? _toastTimer;
+    private DispatcherTimer? _searchDebounce;
+    private DispatcherTimer? _defaultAppTimer;
     private System.Windows.Media.Imaging.BitmapSource? _fallbackIcon;
 
     public MainWindow()
@@ -44,6 +46,7 @@ public partial class MainWindow : Window
         EntryList.ItemsSource = _entries;
         _entryView = CollectionViewSource.GetDefaultView(_entries);
         _entryView.Filter = EntryFilter;
+        Loaded += MainWindow_Loaded;
 
         // 列头点击排序（映射：列标题 → 排序属性；图标列不参与排序）
         new GridSorter(EntryList, new Dictionary<string, string>
@@ -57,12 +60,22 @@ public partial class MainWindow : Window
 
         TemplateList.ItemsSource = BuiltinTemplates.All;
 
-        _fallbackIcon = IconService.ResolveIcon(@"%SystemRoot%\System32\shell32.dll,0");
-
         _isAdmin = ElevationService.IsAdministrator();
         UpdateAdminUi();
         UpdateScopeHeader();
-        RefreshEntries();
+    }
+
+    /// <summary>
+    /// 首屏之后再做磁盘/注册表 IO：窗口先显示出来，避免启动时白屏几百毫秒。
+    /// </summary>
+    private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        Loaded -= MainWindow_Loaded;
+
+        _fallbackIcon = await Task.Run(() =>
+            IconService.ResolveIconCached(@"%SystemRoot%\System32\shell32.dll,0"));
+
+        await RefreshEntriesAsync();
         InitToolboxState();
 
         _initializing = false;
@@ -153,13 +166,28 @@ public partial class MainWindow : Window
             || item.Command.Contains(kw, StringComparison.OrdinalIgnoreCase);
     }
 
-    private void RefreshEntries()
+    /// <summary>
+    /// 重新读取当前分类的菜单项。注册表枚举与图标提取都在后台线程完成
+    /// （图标是冻结的 BitmapSource，可跨线程使用），填充列表回到 UI 线程。
+    /// </summary>
+    private async Task RefreshEntriesAsync()
     {
+        var category = _currentCategory;
+        var ext = _currentExt;
+        var fallback = _fallbackIcon;
+
         try
         {
-            var items = RegistryService.GetEntries(_currentCategory, _currentExt);
-            foreach (var item in items)
-                item.Icon = IconService.ResolveIcon(item.IconPath) ?? _fallbackIcon;
+            var items = await Task.Run(() =>
+            {
+                var list = RegistryService.GetEntries(category, ext);
+                foreach (var item in list)
+                    item.Icon = IconService.ResolveIconCached(item.IconPath) ?? fallback;
+                return list;
+            });
+
+            // 等待期间用户可能已经切换了分类，此时结果作废
+            if (category != _currentCategory || ext != _currentExt) return;
 
             _entries.Clear();
             foreach (var item in items) _entries.Add(item);
@@ -176,9 +204,31 @@ public partial class MainWindow : Window
         }
     }
 
-    private void Refresh_Click(object sender, RoutedEventArgs e) => RefreshEntries();
+    /// <summary>同步入口：供事件处理器「发起刷新但不等待」时使用。</summary>
+    private void RefreshEntries() => _ = RefreshEntriesAsync();
 
-    private void Search_TextChanged(object sender, TextChangedEventArgs e) => _entryView?.Refresh();
+    private void Refresh_Click(object sender, RoutedEventArgs e)
+    {
+        // 手动刷新时丢掉图标缓存，用户可能刚在外部换过图标文件
+        IconService.ClearIconCache();
+        RefreshEntries();
+    }
+
+    private void Search_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        // 防抖：逐字过滤会对整表反复跑一遍过滤器
+        _searchDebounce ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+        _searchDebounce.Stop();
+        _searchDebounce.Tick -= SearchDebounce_Tick;
+        _searchDebounce.Tick += SearchDebounce_Tick;
+        _searchDebounce.Start();
+    }
+
+    private void SearchDebounce_Tick(object? sender, EventArgs e)
+    {
+        _searchDebounce?.Stop();
+        _entryView?.Refresh();
+    }
 
     private void SelectAll_Click(object sender, RoutedEventArgs e)
     {
@@ -411,15 +461,13 @@ public partial class MainWindow : Window
 
         try
         {
+            // SetDisabled 成功后会更新 item.IsDisabled，这一行靠绑定自动刷新，无需重建列表
             RegistryService.SetDisabled(item, !item.IsDisabled);
             ShowToast(item.IsDisabled
                 ? item.IsShellExtension
                     ? $"已禁用「{item.DisplayTitle}」（已从右键菜单中移除）"
                     : $"已禁用「{item.DisplayTitle}」（菜单中变灰失效）"
                 : $"已启用「{item.DisplayTitle}」");
-            var key = item.KeyName;
-            RefreshEntries();
-            SelectEntryByKey(key, item.IsShellExtension);
         }
         catch (ElevationRequiredException)
         {
@@ -432,12 +480,15 @@ public partial class MainWindow : Window
         }
     }
 
-    private bool _suppressStatusSwitch;
-
-    /// <summary>状态列开关：切换单项启用/禁用。初始绑定/容器复用与模型一致时忽略；级联项或失败时回弹。</summary>
+    /// <summary>
+    /// 状态列开关：切换单项启用/禁用。
+    ///
+    /// IsChecked 是 OneWay 绑定到 IsDisabled 的，模型变了这一行会自动更新，
+    /// 因此这里不需要（也不应该）重建整个列表。判断是否为真实用户操作只看
+    /// 「UI 状态与模型是否已经一致」：一致说明是容器复用/初始绑定触发的。
+    /// </summary>
     private void StatusSwitch_Change(object sender, RoutedEventArgs e)
     {
-        if (_suppressStatusSwitch) return;
         if (sender is not CheckBox cb || cb.Tag is not MenuItemModel item) return;
         var enable = cb.IsChecked == true; // 开关 ON = 生效
         if (item.IsDisabled == !enable) return; // 与模型一致：初始绑定/容器复用，非用户操作
@@ -451,40 +502,30 @@ public partial class MainWindow : Window
 
         try
         {
-            RegistryService.SetDisabled(item, !enable); // 成功后内部更新 item.IsDisabled
+            RegistryService.SetDisabled(item, !enable); // 成功后内部更新 item.IsDisabled，绑定随之刷新
             ShowToast(enable
                 ? $"已启用「{item.DisplayTitle}」"
                 : item.IsShellExtension
                     ? $"已禁用「{item.DisplayTitle}」（已从右键菜单中移除）"
                     : $"已禁用「{item.DisplayTitle}」（菜单中变灰失效）");
-            var key = item.KeyName;
-            _suppressStatusSwitch = true;
-            try
-            {
-                RefreshEntries();
-                SelectEntryByKey(key, item.IsShellExtension);
-            }
-            finally { _suppressStatusSwitch = false; }
         }
         catch (ElevationRequiredException)
         {
-            PromptElevation();
             RevertStatusSwitch(cb);
+            PromptElevation();
         }
         catch (Exception ex)
         {
+            RevertStatusSwitch(cb);
             MessageBox.Show(this, "操作失败：\n" + ex.Message, "右键菜单管家",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
-            RevertStatusSwitch(cb);
         }
     }
 
-    private void RevertStatusSwitch(CheckBox cb)
-    {
-        _suppressStatusSwitch = true;
-        cb.IsChecked = cb.IsChecked != true;
-        _suppressStatusSwitch = false;
-    }
+    /// <summary>操作失败时让开关回到模型的真实状态（重新拉一次绑定即可）。</summary>
+    private static void RevertStatusSwitch(CheckBox cb)
+        => cb.GetBindingExpression(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty)
+             ?.UpdateTarget();
 
     // ---------------------------------------------------------------- 导出/导入
 
@@ -757,19 +798,21 @@ public partial class MainWindow : Window
         if (sender is not Button { Tag: string ext }) return;
         DefaultProgramService.ChangeDefaultViaOpenWith(ext);
 
-        // 用户选择完成后刷新该行（系统对话框为模态，此处延迟多次刷新以覆盖大多数情况）
-        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+        // 用户选择完成后刷新该行（系统对话框为模态，此处延迟多次刷新以覆盖大多数情况）。
+        // 复用同一个计时器，避免连点「更改…」时堆出多个各跑各的计时器。
+        _defaultAppTimer?.Stop();
+        _defaultAppTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
         int ticks = 0;
-        timer.Tick += (_, _) =>
+        _defaultAppTimer.Tick += (_, _) =>
         {
             if (ExtList.ItemsSource is IEnumerable<ExtRow> rows)
             {
                 var row = rows.FirstOrDefault(r => r.Ext == ext);
                 if (row != null) row.DefaultApp = DefaultProgramService.GetDefaultAppName(ext);
             }
-            if (++ticks >= 5) timer.Stop();
+            if (++ticks >= 5) _defaultAppTimer?.Stop();
         };
-        timer.Start();
+        _defaultAppTimer.Start();
     }
 
     private void OpenSystemDefaultApps_Click(object sender, RoutedEventArgs e)
@@ -802,22 +845,29 @@ public partial class MainWindow : Window
     private void OpenPasswordBox_Click(object sender, RoutedEventArgs e)
         => new PasswordNoteWindow().Show();
 
-    private void RestartExplorer_Click(object sender, RoutedEventArgs e)
+    private async void RestartExplorer_Click(object sender, RoutedEventArgs e)
     {
         var confirm = MessageBox.Show(this,
             "将关闭并重启 Windows 资源管理器（桌面与任务栏会短暂消失）。\n继续吗？",
             "重启资源管理器", MessageBoxButton.OKCancel, MessageBoxImage.Question);
         if (confirm != MessageBoxResult.OK) return;
 
+        var btn = sender as Button;
+        if (btn != null) btn.IsEnabled = false;
+        ShowToast("正在重启资源管理器…");
         try
         {
-            SystemTools.RestartExplorer();
+            await SystemTools.RestartExplorerAsync();
             ShowToast("资源管理器已重启");
         }
         catch (Exception ex)
         {
             MessageBox.Show(this, "重启失败：" + ex.Message, "右键菜单管家",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            if (btn != null) btn.IsEnabled = true;
         }
     }
 

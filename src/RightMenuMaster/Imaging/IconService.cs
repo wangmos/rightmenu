@@ -25,6 +25,42 @@ public static class IconService
 
     public static string DefaultIconPath => Environment.ExpandEnvironmentVariables(@"%SystemRoot%\System32\shell32.dll");
 
+    // ---------------------------------------------------------------- 缓存
+
+    /// <summary>
+    /// 已解析图标的缓存。列表每刷新一次就要解析几十个图标，每个都是一次磁盘 IO，
+    /// 而同一路径的图标在一次会话内不会变，缓存下来可显著减少刷新耗时。
+    /// </summary>
+    private static readonly Dictionary<(string Location, int Size), BitmapSource?> IconCache = new();
+    private static readonly object CacheLock = new();
+
+    /// <summary>带缓存的 <see cref="ResolveIcon"/>，供列表这类高频、重复路径的场景使用。</summary>
+    public static BitmapSource? ResolveIconCached(string? iconLocation, int size = 32)
+    {
+        if (string.IsNullOrWhiteSpace(iconLocation)) return null;
+
+        var key = (iconLocation.Trim(), size);
+        lock (CacheLock)
+        {
+            if (IconCache.TryGetValue(key, out var cached)) return cached;
+        }
+
+        // 提取过程较慢，放在锁外做；重复解析同一图标的代价可以接受
+        var icon = ResolveIcon(iconLocation, size);
+
+        lock (CacheLock)
+        {
+            IconCache[key] = icon;
+        }
+        return icon;
+    }
+
+    /// <summary>清空图标缓存（图标文件被替换后调用，例如重新选择了图标）。</summary>
+    public static void ClearIconCache()
+    {
+        lock (CacheLock) { IconCache.Clear(); }
+    }
+
     // ---------------------------------------------------------------- 解析显示
 
     /// <summary>

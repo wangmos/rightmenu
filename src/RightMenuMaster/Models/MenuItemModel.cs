@@ -1,11 +1,15 @@
+using RightMenuMaster.ViewModels;
 using System.Windows.Media.Imaging;
 
 namespace RightMenuMaster.Models;
 
 /// <summary>
 /// 一个右键菜单项的完整模型，与注册表结构对应。
+///
+/// 会随操作变化的属性（状态、标题、命令、图标）都带变更通知，
+/// 这样切换单项的启用状态只需更新这一行，不必重建整个列表。
 /// </summary>
-public class MenuItemModel
+public class MenuItemModel : ViewModelBase
 {
     /// <summary>注册表子键名（唯一标识，如 "MyTool"）。</summary>
     public string KeyName { get; set; } = string.Empty;
@@ -15,23 +19,53 @@ public class MenuItemModel
     /// <summary>扩展名分类下的扩展名（含点，如 .txt）。</summary>
     public string? Extension { get; set; }
 
+    private string _title = string.Empty;
+
     /// <summary>显示的标题（默认值）。为空时资源管理器显示键名。</summary>
-    public string Title { get; set; } = string.Empty;
+    public string Title
+    {
+        get => _title;
+        set { if (Set(ref _title, value)) OnPropertyChanged(nameof(DisplayTitle)); }
+    }
+
+    private string _command = string.Empty;
 
     /// <summary>要执行的命令行（command 子键的默认值），可含 %1 %V 等占位符。</summary>
-    public string Command { get; set; } = string.Empty;
+    public string Command
+    {
+        get => _command;
+        set => Set(ref _command, value);
+    }
+
+    private string? _iconPath;
 
     /// <summary>图标位置，格式：文件路径 或 "文件路径,索引"。</summary>
-    public string? IconPath { get; set; }
+    public string? IconPath
+    {
+        get => _iconPath;
+        set => Set(ref _iconPath, value);
+    }
 
     /// <summary>菜单项在列表中的位置（Top/Bottom/空）。</summary>
     public string? Position { get; set; }
 
+    private bool _shiftExtended;
+
     /// <summary>是否需要按住 Shift 右键才显示。</summary>
-    public bool ShiftExtended { get; set; }
+    public bool ShiftExtended
+    {
+        get => _shiftExtended;
+        set => Set(ref _shiftExtended, value);
+    }
+
+    private bool _isDisabled;
 
     /// <summary>是否已禁用（注册表 LegacyDisable 值；禁用后菜单中呈灰色不可用）。</summary>
-    public bool IsDisabled { get; set; }
+    public bool IsDisabled
+    {
+        get => _isDisabled;
+        set => Set(ref _isDisabled, value);
+    }
 
     /// <summary>是否禁止设置工作目录（NoWorkingDirectory）。</summary>
     public bool NoWorkingDirectory { get; set; }
@@ -51,12 +85,23 @@ public class MenuItemModel
     /// <summary>是否为系统内置的不可写项。</summary>
     public bool IsReadOnly => IsCascade;
 
+    private BitmapSource? _icon;
+
     /// <summary>用于列表显示的图标（已解析）。</summary>
-    public BitmapSource? Icon { get; set; }
+    public BitmapSource? Icon
+    {
+        get => _icon;
+        set => Set(ref _icon, value);
+    }
 
     public string DisplayTitle => string.IsNullOrWhiteSpace(Title) ? KeyName : Title;
 
-    public MenuItemModel Clone() => (MenuItemModel)MemberwiseClone();
+    public MenuItemModel Clone()
+    {
+        var copy = (MenuItemModel)MemberwiseClone();
+        copy.ClearPropertyChangedSubscribers();
+        return copy;
+    }
 }
 
 /// <summary>

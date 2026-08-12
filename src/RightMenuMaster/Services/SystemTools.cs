@@ -12,9 +12,10 @@ public static class SystemTools
     private const string AdvancedKey = @"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced";
 
     /// <summary>
-    /// 重启 explorer.exe。
+    /// 重启 explorer.exe。整个过程要等待进程退出并重新拉起，耗时可达数秒，
+    /// 必须在后台线程执行，否则界面会假死。
     /// </summary>
-    public static void RestartExplorer()
+    public static Task RestartExplorerAsync() => Task.Run(() =>
     {
         foreach (var p in Process.GetProcessesByName("explorer"))
         {
@@ -23,12 +24,12 @@ public static class SystemTools
         }
 
         // 通常系统会自动重启 explorer；若没有则手动拉起
-        System.Threading.Thread.Sleep(800);
+        Thread.Sleep(800);
         if (Process.GetProcessesByName("explorer").Length == 0)
         {
             try { Process.Start("explorer.exe"); } catch { /* 忽略 */ }
         }
-    }
+    });
 
     /// <summary>是否显示隐藏文件。</summary>
     public static bool GetShowHiddenFiles() => ReadAdvancedDword("Hidden") == 1;

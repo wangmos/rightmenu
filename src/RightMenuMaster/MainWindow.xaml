@@ -335,7 +335,7 @@
                                                           Tag="{Binding}"
                                                           Checked="StatusSwitch_Change" Unchecked="StatusSwitch_Change"
                                                           ToolTip="开关 = 生效 / 失效"
-                                                          IsChecked="{Binding IsDisabled, Mode=OneTime,
+                                                          IsChecked="{Binding IsDisabled, Mode=OneWay,
                                                               Converter={StaticResource InvBool}}">
                                                     <TextBlock FontSize="11" Margin="6,0,0,0" VerticalAlignment="Center">
                                                         <TextBlock.Style>
