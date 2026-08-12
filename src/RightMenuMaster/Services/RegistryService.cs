@@ -44,7 +44,10 @@ public static class RegistryService
     /// </summary>
     public static List<MenuItemModel> GetEntries(MenuCategory category, string? extension = null)
     {
-        var result = new Dictionary<string, MenuItemModel>(StringComparer.OrdinalIgnoreCase);
+        // key 必须区分 shell 与 shellex：两处可能存在同名子键（如 shell\7-Zip 与
+        // shellex\ContextMenuHandlers\7-Zip），只用键名会互相覆盖导致列表丢项
+        var result = new Dictionary<(bool IsShellex, string Name), MenuItemModel>(
+            new EntryKeyComparer());
         var shellRelative = category.ShellPath(extension);
         var shellexRelative = category.ShellexPath(extension);
 
@@ -65,7 +68,7 @@ public static class RegistryService
                     {
                         using var sub = shellKey.OpenSubKey(name);
                         if (sub == null) continue;
-                        result[name] = ReadEntry(sub, name, category, extension, source);
+                        result[(false, name)] = ReadEntry(sub, name, category, extension, source);
                     }
                 }
             }
@@ -78,7 +81,7 @@ public static class RegistryService
                     {
                         using var sub = shellexKey.OpenSubKey(name);
                         if (sub == null) continue;
-                        result[name] = ReadHandlerEntry(sub, name, category, extension, source);
+                        result[(true, name)] = ReadHandlerEntry(sub, name, category, extension, source);
                     }
                 }
             }
@@ -88,6 +91,17 @@ public static class RegistryService
             .OrderBy(i => i.Position == "Top" ? 0 : 1)
             .ThenBy(i => i.DisplayTitle, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
+    }
+
+    /// <summary>菜单项去重用的 key 比较器：键名不区分大小写，shell / shellex 分开计。</summary>
+    private sealed class EntryKeyComparer : IEqualityComparer<(bool IsShellex, string Name)>
+    {
+        public bool Equals((bool IsShellex, string Name) x, (bool IsShellex, string Name) y) =>
+            x.IsShellex == y.IsShellex
+            && StringComparer.OrdinalIgnoreCase.Equals(x.Name, y.Name);
+
+        public int GetHashCode((bool IsShellex, string Name) obj) =>
+            HashCode.Combine(obj.IsShellex, StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Name));
     }
 
     private static MenuItemModel ReadEntry(RegistryKey key, string name, MenuCategory category,

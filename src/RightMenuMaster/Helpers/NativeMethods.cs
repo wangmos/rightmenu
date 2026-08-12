@@ -55,6 +55,14 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     public static extern bool DestroyIcon(IntPtr handle);
 
+    /// <summary>
+    /// 按指定尺寸提取图标（ExtractIconEx 的大图标固定 32px，取不到更清晰的 48/64/256）。
+    /// nIconSize：低 16 位 = 大图标边长，高 16 位 = 小图标边长。返回 S_OK(0) 表示成功。
+    /// </summary>
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    public static extern int SHDefExtractIcon(string pszIconFile, int iIndex, uint uFlags,
+        out IntPtr phiconLarge, out IntPtr phiconSmall, uint nIconSize);
+
     // ---- Shell 刷新通知 ----
     public const int SHCNE_ASSOCCHANGED = 0x08000000;
     public const uint SHCNF_IDLIST = 0x0000;

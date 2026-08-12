@@ -294,7 +294,20 @@ public partial class MainWindow : Window
             return;
         }
 
+        // 级联子菜单（SubCommands）结构复杂且多为系统内置，删除不可逆，一律跳过
+        var cascades = items.Count(i => i.IsCascade);
+        items = items.Where(i => !i.IsCascade).ToList();
+        if (items.Count == 0)
+        {
+            MessageBox.Show(this,
+                "选中的是系统级联子菜单（SubCommands），结构复杂且删除后难以恢复，本程序不支持删除。",
+                "右键菜单管家", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
         var what = items.Count == 1 ? $"「{items[0].DisplayTitle}」" : $"选中的 {items.Count} 项";
+        if (cascades > 0)
+            what += $"（已跳过 {cascades} 个级联子菜单）";
         var confirm = MessageBox.Show(this,
             $"确定删除菜单{what}吗？\n此操作不可撤销。",
             "删除确认", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
@@ -323,7 +336,7 @@ public partial class MainWindow : Window
             var key = RegistryService.CopyToCurrentUser(item);
             ShowToast($"已复制为当前用户项：{key}，现在可以修改或删除它");
             RefreshEntries();
-            SelectEntryByKey(key);
+            SelectEntryByKey(key, item.IsShellExtension);
         }
         catch (Exception ex)
         {
@@ -384,7 +397,7 @@ public partial class MainWindow : Window
                 : $"已启用「{item.DisplayTitle}」");
             var key = item.KeyName;
             RefreshEntries();
-            SelectEntryByKey(key);
+            SelectEntryByKey(key, item.IsShellExtension);
         }
         catch (ElevationRequiredException)
         {
@@ -427,7 +440,7 @@ public partial class MainWindow : Window
             try
             {
                 RefreshEntries();
-                SelectEntryByKey(key);
+                SelectEntryByKey(key, item.IsShellExtension);
             }
             finally { _suppressStatusSwitch = false; }
         }
@@ -455,9 +468,24 @@ public partial class MainWindow : Window
 
     private void Export_Click(object sender, RoutedEventArgs e)
     {
+        // 优先导出勾选（= 选中）的项；一项都没勾时导出当前分类的全部可导出项
+        var selected = EntryList.SelectedItems.OfType<MenuItemModel>()
+            .Where(i => !i.IsCascade && !i.IsShellExtension)
+            .ToList();
+        var exportAll = selected.Count == 0;
+        var items = exportAll
+            ? _entries.Where(i => !i.IsCascade && !i.IsShellExtension).ToList()
+            : selected;
+
+        if (items.Count == 0)
+        {
+            ShowToast("当前分类下没有可导出的菜单项");
+            return;
+        }
+
         var dlg = new SaveFileDialog
         {
-            Title = "导出当前分类的菜单项",
+            Title = exportAll ? "导出当前分类的全部菜单项" : $"导出选中的 {items.Count} 个菜单项",
             Filter = "右键菜单管家导出文件 (*.json)|*.json",
             DefaultExt = ".json",
             FileName = $"RightMenuMaster_{_currentCategory}_{DateTime.Now:yyyyMMdd_HHmmss}.json",
@@ -466,8 +494,8 @@ public partial class MainWindow : Window
 
         try
         {
-            var n = ExportImportService.Export(_currentCategory, _currentExt, dlg.FileName);
-            ShowToast(n > 0 ? $"已导出 {n} 个菜单项" : "当前分类下没有可导出的菜单项");
+            var n = ExportImportService.Export(items, dlg.FileName);
+            ShowToast(exportAll ? $"已导出当前分类全部 {n} 个菜单项" : $"已导出选中的 {n} 个菜单项");
         }
         catch (Exception ex)
         {
@@ -499,10 +527,12 @@ public partial class MainWindow : Window
         }
     }
 
-    private void SelectEntryByKey(string key)
+    /// <summary>按键名重新选中某项。shell 与 shellex 下可能有同名键，需一并区分。</summary>
+    private void SelectEntryByKey(string key, bool isShellExtension = false)
     {
         var item = _entries.FirstOrDefault(i =>
-            string.Equals(i.KeyName, key, StringComparison.OrdinalIgnoreCase));
+            i.IsShellExtension == isShellExtension
+            && string.Equals(i.KeyName, key, StringComparison.OrdinalIgnoreCase));
         if (item != null)
         {
             EntryList.SelectedItem = item;

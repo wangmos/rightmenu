@@ -49,12 +49,12 @@ public static class ExportImportService
     };
 
     /// <summary>
-    /// 导出指定分类下的所有非级联、非 Shell 扩展菜单项到 JSON 文件，返回导出数量。
-    /// （级联子菜单与 shellex 扩展处理程序结构特殊，不参与导出。）
+    /// 把给定的菜单项导出到 JSON 文件，返回导出数量。
+    /// （级联子菜单与 shellex 扩展处理程序结构特殊，会被自动过滤掉。）
     /// </summary>
-    public static int Export(MenuCategory category, string? extension, string filePath)
+    public static int Export(IEnumerable<MenuItemModel> source, string filePath)
     {
-        var items = RegistryService.GetEntries(category, extension)
+        var items = source
             .Where(i => !i.IsCascade && !i.IsShellExtension)
             .ToList();
 

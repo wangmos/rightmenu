@@ -29,6 +29,7 @@ public static class IconService
 
     /// <summary>
     /// 把注册表 Icon 值解析为可显示的图片。支持 "文件" 与 "文件,索引" 两种格式。
+    /// <paramref name="size"/> 为期望的像素边长，会真实传递给图标提取 API（而非事后放大）。
     /// </summary>
     public static BitmapSource? ResolveIcon(string? iconLocation, int size = 32)
     {
@@ -51,9 +52,9 @@ public static class IconService
             var ext = Path.GetExtension(file).ToLowerInvariant();
             return ext switch
             {
-                ".exe" or ".dll" or ".cpl" or ".ocx" or ".scr" or ".icl" => ExtractIconFromFile(file, index),
-                ".ico" or ".png" or ".jpg" or ".jpeg" or ".bmp" or ".gif" => LoadImage(file),
-                _ => ExtractIconFromFile(file, index),
+                ".exe" or ".dll" or ".cpl" or ".ocx" or ".scr" or ".icl" => ExtractIconFromFile(file, index, size),
+                ".ico" or ".png" or ".jpg" or ".jpeg" or ".bmp" or ".gif" => LoadImage(file, size),
+                _ => ExtractIconFromFile(file, index, size),
             };
         }
         catch
@@ -62,24 +63,21 @@ public static class IconService
         }
     }
 
-    private static BitmapSource? ExtractIconFromFile(string file, int index)
+    /// <summary>
+    /// 从 exe/dll/icl 中提取指定索引的图标。
+    /// 优先用 SHDefExtractIcon（可指定尺寸，能取到 48/64/256 等大尺寸位图），
+    /// 失败时退回 ExtractIconEx（只有 32px 大图标）。
+    /// </summary>
+    private static BitmapSource? ExtractIconFromFile(string file, int index, int size = 32)
     {
-        var handles = new IntPtr[1];
+        var icon = ExtractHIcon(file, index, size);
+        // 索引无效时退回第一个图标
+        if (icon == IntPtr.Zero && index != 0) icon = ExtractHIcon(file, 0, size);
+        if (icon == IntPtr.Zero) return null;
+
         try
         {
-            int count = NativeMethods.ExtractIconEx(file, index, handles, null, 1);
-            if (count <= 0 || handles[0] == IntPtr.Zero)
-            {
-                // 索引无效时退回第一个图标
-                if (index != 0)
-                {
-                    count = NativeMethods.ExtractIconEx(file, 0, handles, null, 1);
-                    if (count <= 0 || handles[0] == IntPtr.Zero) return null;
-                }
-                else return null;
-            }
-
-            var src = System.Windows.Interop.Imaging.CreateBitmapSourceFromHIcon(handles[0], Int32Rect.Empty,
+            var src = System.Windows.Interop.Imaging.CreateBitmapSourceFromHIcon(icon, Int32Rect.Empty,
                 BitmapSizeOptions.FromEmptyOptions());
             src.Freeze();
             return src;
@@ -90,11 +88,38 @@ public static class IconService
         }
         finally
         {
-            if (handles[0] != IntPtr.Zero) NativeMethods.DestroyIcon(handles[0]);
+            NativeMethods.DestroyIcon(icon);
         }
     }
 
-    private static BitmapSource? LoadImage(string file)
+    /// <summary>按指定尺寸取一个 HICON，取不到返回 IntPtr.Zero（调用方负责 DestroyIcon）。</summary>
+    private static IntPtr ExtractHIcon(string file, int index, int size)
+    {
+        if (size > 0)
+        {
+            try
+            {
+                // nIconSize 的低 16 位 = 大图标尺寸，高 16 位 = 小图标尺寸（此处不需要小图标）
+                if (NativeMethods.SHDefExtractIcon(file, index, 0, out var large, out _, (uint)size) == 0
+                    && large != IntPtr.Zero)
+                    return large;
+            }
+            catch { /* 退回 ExtractIconEx */ }
+        }
+
+        var handles = new IntPtr[1];
+        try
+        {
+            int count = NativeMethods.ExtractIconEx(file, index, handles, null, 1);
+            return count > 0 ? handles[0] : IntPtr.Zero;
+        }
+        catch
+        {
+            return IntPtr.Zero;
+        }
+    }
+
+    private static BitmapSource? LoadImage(string file, int size = 32)
     {
         try
         {
@@ -103,7 +128,8 @@ public static class IconService
             bi.UriSource = new Uri(Path.GetFullPath(file));
             bi.CacheOption = BitmapCacheOption.OnLoad;
             bi.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
-            bi.DecodePixelWidth = 128;
+            // 解码尺寸取 2 倍，保证高 DPI 下不糊；上限 256 避免大图占内存
+            bi.DecodePixelWidth = Math.Clamp(size * 2, 32, 256);
             bi.EndInit();
             bi.Freeze();
             return bi;
@@ -173,7 +199,11 @@ public static class IconService
     public static string SaveImageAsIcon(string imageFile)
     {
         Directory.CreateDirectory(IconsDir);
-        var target = Path.Combine(IconsDir, $"{SanitizeName(Path.GetFileNameWithoutExtension(imageFile))}_{Guid.NewGuid():N}"[..64] + ".ico");
+
+        // 基名限长后再拼 32 位 GUID：不能对整串取 [..64]，短文件名会直接越界
+        var baseName = SanitizeName(Path.GetFileNameWithoutExtension(imageFile));
+        if (baseName.Length > 24) baseName = baseName[..24];
+        var target = Path.Combine(IconsDir, $"{baseName}_{Guid.NewGuid():N}.ico");
 
         var ext = Path.GetExtension(imageFile).ToLowerInvariant();
         if (ext == ".ico")
