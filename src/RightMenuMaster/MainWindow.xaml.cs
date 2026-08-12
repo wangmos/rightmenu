@@ -34,7 +34,6 @@ public partial class MainWindow : Window
     private DispatcherTimer? _toastTimer;
     private DispatcherTimer? _searchDebounce;
     private DispatcherTimer? _defaultAppTimer;
-    private System.Windows.Media.Imaging.BitmapSource? _fallbackIcon;
 
     public MainWindow()
     {
@@ -71,9 +70,6 @@ public partial class MainWindow : Window
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
         Loaded -= MainWindow_Loaded;
-
-        _fallbackIcon = await Task.Run(() =>
-            IconService.ResolveIconCached(@"%SystemRoot%\System32\shell32.dll,0"));
 
         await RefreshEntriesAsync();
         InitToolboxState();
@@ -174,15 +170,16 @@ public partial class MainWindow : Window
     {
         var category = _currentCategory;
         var ext = _currentExt;
-        var fallback = _fallbackIcon;
 
         try
         {
             var items = await Task.Run(() =>
             {
                 var list = RegistryService.GetEntries(category, ext);
+                // 没设置图标的项就留空，不要塞一个 shell32 默认图标——
+                // 那会让人以为已经设过图标，也和右键菜单里的真实观感不一致
                 foreach (var item in list)
-                    item.Icon = IconService.ResolveIconCached(item.IconPath) ?? fallback;
+                    item.Icon = IconService.ResolveIconCached(item.IconPath);
                 return list;
             });
 

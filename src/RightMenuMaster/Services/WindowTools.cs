@@ -53,7 +53,7 @@ public static class WindowTools
                 }
                 catch { /* 进程可能已退出或无权限 */ }
 
-                bool topmost = (NativeMethods.GetWindowLong(hWnd, NativeMethods.GWL_EXSTYLE)
+                bool topmost = (NativeMethods.GetWindowLongValue(hWnd, NativeMethods.GWL_EXSTYLE)
                                 & NativeMethods.WS_EX_TOPMOST) != 0;
 
                 list.Add(new WindowInfo

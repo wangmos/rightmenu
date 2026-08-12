@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 
 namespace RightMenuMaster.Views;
 
@@ -10,6 +11,7 @@ namespace RightMenuMaster.Views;
 public partial class PasswordNoteWindow : Window
 {
     private bool _showPlain;
+    private DispatcherTimer? _clipboardTimer;
 
     private const string CharSet =
         "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%&*_+-=";
@@ -56,12 +58,44 @@ public partial class PasswordNoteWindow : Window
         try
         {
             Clipboard.SetText(text);
-            Title = "密码速记框 - 已复制到剪贴板";
+            Title = "密码速记框 - 已复制到剪贴板（30 秒后自动清空）";
+            ScheduleClipboardClear(text);
         }
         catch
         {
             // 剪贴板被占用时忽略
         }
+    }
+
+    /// <summary>
+    /// 30 秒后清空剪贴板，避免密码长期留在里面被其他程序读走。
+    /// 只有内容仍是刚复制的那段时才清，不影响用户后来复制的别的东西。
+    /// </summary>
+    private void ScheduleClipboardClear(string copied)
+    {
+        _clipboardTimer?.Stop();
+        _clipboardTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+        _clipboardTimer.Tick += (_, _) =>
+        {
+            _clipboardTimer?.Stop();
+            try
+            {
+                if (Clipboard.ContainsText() && Clipboard.GetText() == copied)
+                {
+                    Clipboard.Clear();
+                    Title = "密码速记框 - 剪贴板已清空";
+                }
+            }
+            catch { /* 剪贴板被占用时忽略 */ }
+        };
+        _clipboardTimer.Start();
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _clipboardTimer?.Stop();
+        _clipboardTimer = null;
+        base.OnClosed(e);
     }
 
     private void Clear_Click(object sender, RoutedEventArgs e)

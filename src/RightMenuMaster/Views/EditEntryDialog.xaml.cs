@@ -350,6 +350,8 @@ public partial class EditEntryDialog : Window
         new LlmSettingsDialog { Owner = this }.ShowDialog();
     }
 
+    private CancellationTokenSource? _aiCts;
+
     private async void AiGenerate_Click(object sender, RoutedEventArgs e)
     {
         var settings = LlmSettings.Load();
@@ -369,11 +371,22 @@ public partial class EditEntryDialog : Window
         BtnAiGenerate.IsEnabled = false;
         AiGenerateText.Text = "生成中…";
         AiStatusText.Text = "正在调用大模型…";
+
+        _aiCts?.Cancel();
+        _aiCts?.Dispose();
+        _aiCts = new CancellationTokenSource();
+        var token = _aiCts.Token;
+
         try
         {
-            var draft = await LlmService.GenerateAsync(AiDescBox.Text.Trim(), settings);
+            var draft = await LlmService.GenerateAsync(AiDescBox.Text.Trim(), settings, token);
+            if (token.IsCancellationRequested) return; // 对话框已关闭，别再回写控件
             ApplyDraft(draft);
             AiStatusText.Text = "已按模型返回内容填写，请检查各项后保存。";
+        }
+        catch (OperationCanceledException)
+        {
+            return; // 用户关闭了对话框
         }
         catch (Exception ex)
         {
@@ -381,9 +394,21 @@ public partial class EditEntryDialog : Window
         }
         finally
         {
-            BtnAiGenerate.IsEnabled = true;
-            AiGenerateText.Text = "生成菜单定义";
+            if (!token.IsCancellationRequested)
+            {
+                BtnAiGenerate.IsEnabled = true;
+                AiGenerateText.Text = "生成菜单定义";
+            }
         }
+    }
+
+    /// <summary>对话框关闭时取消仍在进行的请求（默认超时 90 秒，不能让它继续回写已关闭的窗口）。</summary>
+    protected override void OnClosed(EventArgs e)
+    {
+        _aiCts?.Cancel();
+        _aiCts?.Dispose();
+        _aiCts = null;
+        base.OnClosed(e);
     }
 
     /// <summary>把模型返回的草稿应用到表单各控件。</summary>

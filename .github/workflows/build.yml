@@ -1,0 +1,30 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    # WPF 只能在 Windows 上构建
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: 还原依赖
+        run: dotnet restore RightMenuMaster.sln
+
+      - name: 编译
+        run: dotnet build RightMenuMaster.sln -c Release --no-restore
+
+      - name: 运行测试
+        run: dotnet test RightMenuMaster.sln -c Release --no-build --verbosity normal

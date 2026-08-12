@@ -32,7 +32,8 @@ public static class DefaultProgramService
             var friendly = appKey?.GetValue("ApplicationName") as string;
             if (!string.IsNullOrEmpty(friendly)) return friendly;
 
-            var desc = Registry.ClassesRoot.OpenSubKey(progKey(progId))?.GetValue(null) as string;
+            using var progIdKey = Registry.ClassesRoot.OpenSubKey(progId);
+            var desc = progIdKey?.GetValue(null) as string;
             if (!string.IsNullOrEmpty(desc)) return desc;
 
             return progId;
@@ -42,8 +43,6 @@ public static class DefaultProgramService
             return "(未知)";
         }
     }
-
-    private static string progKey(string progId) => progId;
 
     /// <summary>
     /// 打开系统"打开方式"对话框，让用户为指定扩展名选择默认程序。

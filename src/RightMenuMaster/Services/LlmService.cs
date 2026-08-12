@@ -132,7 +132,8 @@ public static class LlmService
             """.Replace("{ICONS}", icons);
     }
 
-    public static async Task<MenuDraft> GenerateAsync(string description, LlmSettings settings)
+    public static async Task<MenuDraft> GenerateAsync(string description, LlmSettings settings,
+        CancellationToken cancellationToken = default)
     {
         var url = settings.BaseUrl.Trim().TrimEnd('/');
         if (!url.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase))
@@ -153,8 +154,8 @@ public static class LlmService
         msg.Headers.TryAddWithoutValidation("Authorization", "Bearer " + settings.Key.Trim());
         msg.Content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
 
-        var resp = await Http.SendAsync(msg);
-        var body = await resp.Content.ReadAsStringAsync();
+        using var resp = await Http.SendAsync(msg, cancellationToken);
+        var body = await resp.Content.ReadAsStringAsync(cancellationToken);
         if (!resp.IsSuccessStatusCode)
             throw new InvalidOperationException($"API 返回 {(int)resp.StatusCode}：{Truncate(body)}");
 

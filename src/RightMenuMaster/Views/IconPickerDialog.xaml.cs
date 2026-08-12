@@ -31,7 +31,27 @@ public partial class IconPickerDialog : Window
     private object? _picked;
     private bool _suppress;
 
+    /// <summary>
+    /// 系统图标库缓存。一个库可能有几百个 BitmapSource，全留着很占内存，
+    /// 因此只保留最近使用的两个库（够覆盖来回切换的场景）。
+    /// </summary>
     private static readonly Dictionary<string, List<SystemIconInfo>> SysCache = new();
+    private static readonly List<string> SysCacheOrder = new();
+    private const int MaxCachedLibraries = 2;
+
+    private static void CacheLibrary(string path, List<SystemIconInfo> icons)
+    {
+        SysCache[path] = icons;
+        SysCacheOrder.Remove(path);
+        SysCacheOrder.Add(path);
+
+        while (SysCacheOrder.Count > MaxCachedLibraries)
+        {
+            var oldest = SysCacheOrder[0];
+            SysCacheOrder.RemoveAt(0);
+            SysCache.Remove(oldest);
+        }
+    }
 
     /// <summary>确定后返回的图标位置字符串（可写入注册表 Icon 值）。</summary>
     public string? SelectedIconLocation { get; private set; }
@@ -111,11 +131,12 @@ public partial class IconPickerDialog : Window
         if (SysCache.TryGetValue(lib.Path, out var cached))
         {
             icons = cached;
+            CacheLibrary(lib.Path, cached); // 命中也刷新一次使用顺序
         }
         else
         {
             icons = await Task.Run(() => IconService.ExtractSystemIcons(lib.Path));
-            SysCache[lib.Path] = icons;
+            CacheLibrary(lib.Path, icons);
             // 若期间用户已切换库，丢弃结果
             if (LibCombo.SelectedItem is not LibOption current || current.Path != lib.Path) return;
         }
