@@ -1,0 +1,72 @@
+using System.Runtime.InteropServices;
+using System.Text;
+
+namespace RightMenuMaster.Helpers;
+
+/// <summary>
+/// Win32 P/Invoke 声明。用于窗口置顶、图标提取、通知 shell 刷新等。
+/// </summary>
+internal static class NativeMethods
+{
+    // ---- 窗口置顶 / 枚举 ----
+    public const int GWL_EXSTYLE = -20;
+    public const int WS_EX_TOPMOST = 0x00000008;
+
+    public const int SWP_NOSIZE = 0x0001;
+    public const int SWP_NOMOVE = 0x0002;
+    public const int SWP_NOACTIVATE = 0x0010;
+
+    public static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+    public static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
+
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    public static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+    [DllImport("user32.dll")]
+    public static extern int GetWindowTextLength(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("user32.dll")]
+    public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll")]
+    public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetShellWindow();
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetDesktopWindow();
+
+    // ---- 图标提取 ----
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern int ExtractIconEx(string szFileName, int nIconIndex, IntPtr[]? phiconLarge, IntPtr[]? phiconSmall, int nIcons);
+
+    [DllImport("user32.dll")]
+    public static extern bool DestroyIcon(IntPtr handle);
+
+    // ---- Shell 刷新通知 ----
+    public const int SHCNE_ASSOCCHANGED = 0x08000000;
+    public const uint SHCNF_IDLIST = 0x0000;
+
+    [DllImport("shell32.dll")]
+    public static extern void SHChangeNotify(int wEventId, uint uFlags, IntPtr dwItem1, IntPtr dwItem2);
+
+    public static void NotifyAssociationChanged() =>
+        SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, IntPtr.Zero, IntPtr.Zero);
+
+    // ---- 间接字符串解析（形如 @%SystemRoot%\system32\shell32.dll,-345 的资源引用）----
+    [DllImport("shlwapi.dll", CharSet = CharSet.Unicode)]
+    public static extern int SHLoadIndirectString(string pszSource, StringBuilder pszOutBuf,
+        uint cchOutBuf, IntPtr ppvReserved);
+}

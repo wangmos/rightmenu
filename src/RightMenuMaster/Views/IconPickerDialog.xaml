@@ -1,0 +1,158 @@
+<Window x:Class="RightMenuMaster.Views.IconPickerDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="选择图标" Width="760" Height="560"
+        ResizeMode="NoResize" WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False" Background="#F7F9FC">
+
+    <Window.Resources>
+        <!-- 图标选择项样式 -->
+        <Style x:Key="IconItemContainer" TargetType="ListBoxItem">
+            <Setter Property="Margin" Value="4"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="bd" Background="White" CornerRadius="8" Padding="7"
+                                BorderBrush="{StaticResource BorderBrushLight}" BorderThickness="1">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="BorderBrush" Value="#9DBDF5"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                <Setter TargetName="bd" Property="BorderThickness" Value="2"/>
+                                <Setter TargetName="bd" Property="Background" Value="{StaticResource AccentLightBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel Margin="18,14">
+        <!-- 底部：预览 + 按钮 -->
+        <Border DockPanel.Dock="Bottom" Margin="0,12,0,0">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Style="{StaticResource PrimaryButton}" Click="Ok_Click" Padding="22,8">
+                        <TextBlock Text="确定"/>
+                    </Button>
+                    <Button Style="{StaticResource RoundedButton}" Click="Cancel_Click" Margin="10,0,0,0" Padding="22,8">
+                        <TextBlock Text="取消"/>
+                    </Button>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Width="52" Height="52" CornerRadius="10" Background="White"
+                            BorderBrush="{StaticResource BorderBrushLight}" BorderThickness="1">
+                        <Image x:Name="ResultPreview" Width="40" Height="40"
+                               RenderOptions.BitmapScalingMode="HighQuality"/>
+                    </Border>
+                    <StackPanel Margin="12,0,0,0" VerticalAlignment="Center" MaxWidth="420">
+                        <TextBlock Text="已选择的图标来源" FontSize="11"
+                                   Foreground="{StaticResource TextSecondaryBrush}"/>
+                        <TextBlock x:Name="ResultText" Text="尚未选择" Margin="0,3,0,0"
+                                   TextTrimming="CharacterEllipsis"/>
+                    </StackPanel>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <TabControl>
+            <!-- 内置图标 -->
+            <TabItem Header="内置小图标">
+                <Grid Margin="0,10,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Text="应用内置的扁平风格小图标，选中后会自动保存为 ICO 文件供资源管理器使用"
+                               FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" Margin="2,0,0,8"/>
+                    <ListBox x:Name="BuiltinList" Grid.Row="1" BorderThickness="0" Background="Transparent"
+                             ItemContainerStyle="{StaticResource IconItemContainer}"
+                             SelectionChanged="Pick_Changed"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel/>
+                            </ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel ToolTip="{Binding Name}">
+                                    <Image Source="{Binding Image}" Width="42" Height="42"
+                                           RenderOptions.BitmapScalingMode="HighQuality"/>
+                                    <TextBlock Text="{Binding Name}" FontSize="10.5" HorizontalAlignment="Center"
+                                               Margin="0,4,0,0" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </TabItem>
+
+            <!-- 系统图标 -->
+            <TabItem Header="系统图标库">
+                <Grid Margin="0,10,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="2,0,0,8">
+                        <TextBlock Text="图标库：" VerticalAlignment="Center"
+                                   Foreground="{StaticResource TextSecondaryBrush}"/>
+                        <ComboBox x:Name="LibCombo" Width="240" DisplayMemberPath="Name"
+                                  SelectionChanged="LibCombo_Changed"/>
+                        <TextBlock x:Name="SysLoadingText" Text="正在提取图标…" VerticalAlignment="Center"
+                                   Margin="12,0,0,0" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <ListBox x:Name="SystemList" Grid.Row="1" BorderThickness="0" Background="Transparent"
+                             ItemContainerStyle="{StaticResource IconItemContainer}"
+                             SelectionChanged="Pick_Changed"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel/>
+                            </ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Image Source="{Binding Image}" Width="30" Height="30"
+                                       RenderOptions.BitmapScalingMode="HighQuality"
+                                       ToolTip="{Binding IconLocation}"/>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </TabItem>
+
+            <!-- 图片文件 -->
+            <TabItem Header="图片 / 程序文件">
+                <StackPanel Margin="4,14,4,0">
+                    <TextBlock Text="支持 .ico / .png / .jpg / .bmp 图片（自动转换为 ICO），也支持从 .exe / .dll 中提取图标"
+                               FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    <DockPanel Margin="0,12,0,0">
+                        <Button DockPanel.Dock="Right" Style="{StaticResource RoundedButton}"
+                                Click="BrowseFile_Click" Padding="14,6" Margin="8,0,0,0">
+                            <TextBlock Text="浏览…"/>
+                        </Button>
+                        <TextBox x:Name="FilePathBox" IsReadOnly="True"/>
+                    </DockPanel>
+                    <Border Margin="0,14,0,0" Padding="16" Style="{StaticResource Card}"
+                            HorizontalAlignment="Left">
+                        <StackPanel>
+                            <Image x:Name="FilePreview" Width="64" Height="64"
+                                   RenderOptions.BitmapScalingMode="HighQuality"/>
+                            <TextBlock x:Name="FilePreviewHint" Text="预览" FontSize="11" Margin="0,8,0,0"
+                                       HorizontalAlignment="Center"
+                                       Foreground="{StaticResource TextSecondaryBrush}"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</Window>
