@@ -1,4 +1,3 @@
-using RightMenuMaster.Imaging;
 using RightMenuMaster.Models;
 using RightMenuMaster.Services;
 using RightMenuMaster.Views;
@@ -7,6 +6,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 
 namespace RightMenuMaster;
@@ -44,16 +44,28 @@ public partial class MainWindow : Window, IShellHost
         PageTools.InitSwitches();
     }
 
+    private static ImageSource? _appIcon;
+
+    /// <summary>
+    /// 应用图标。与 exe 的 ApplicationIcon 同一个 app.ico，
+    /// 这样文件图标、任务栏图标、各窗口标题栏图标完全一致。
+    /// </summary>
     internal static ImageSource MakeAppIcon()
     {
-        var def = new BuiltinIcon("App", "#2F6FED", (dc, s, _) =>
-        {
-            // Geometry.Parse 返回冻结对象，Clone 后才能设置 Transform
-            var g = Geometry.Parse("M5,3 L14,12 L10.5,12.8 L13,18.2 L10.6,19.3 L8.2,13.9 L5,16.5 Z").Clone();
-            g.Transform = new ScaleTransform(s / 24.0, s / 24.0);
-            dc.DrawGeometry(Brushes.White, null, g);
-        });
-        return BuiltinIcons.Render(def, 64);
+        if (_appIcon != null) return _appIcon;
+
+        var decoder = new IconBitmapDecoder(
+            new Uri("pack://application:,,,/app.ico"),
+            BitmapCreateOptions.None,
+            BitmapCacheOption.OnLoad);
+
+        // 取 64px 那一帧：标题栏与任务栏都足够清晰，又不必解码 256px
+        var frame = decoder.Frames.FirstOrDefault(f => f.PixelWidth == 64)
+            ?? decoder.Frames.OrderByDescending(f => f.PixelWidth).First();
+        frame.Freeze();
+
+        _appIcon = frame;
+        return frame;
     }
 
     // ================================================================== IShellHost

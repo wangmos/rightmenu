@@ -9,6 +9,7 @@
     <RootNamespace>RightMenuMaster</RootNamespace>
     <AssemblyName>RightMenuMaster</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>app.ico</ApplicationIcon>
     <Version>0.1.0</Version>
     <AssemblyVersion>0.1.0.0</AssemblyVersion>
     <FileVersion>0.1.0.0</FileVersion>
@@ -17,5 +18,10 @@
     <Description>Windows 右键菜单管理器：分类管理、图标自定义、快捷模板、默认程序、实用小工具</Description>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 同一个 ico 既作 exe 图标，也作窗口/任务栏图标，保证三处观感一致 -->
+    <Resource Include="app.ico" />
+  </ItemGroup>
 
 </Project>
